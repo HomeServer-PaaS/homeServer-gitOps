@@ -7,7 +7,7 @@ argocd/
 ├── self-Intruduction.yaml       # 웹 앱 Argo CD Application
 ├── traefik.yaml                  # Traefik Helm chart Argo CD Application
 ├── cloudflared.yaml             # Tunnel Connector Argo CD Application
-└── calico.yaml                  # Calico 주소 탐지 Argo CD Application (수동 동기화)
+└── calico.yaml                  # Calico 주소 탐지 Argo CD Application (자동 동기화)
 apps/self-Intruduction/
 ├── deployment.yaml               # 웹 앱 Deployment
 ├── service.yaml                  # 내부 ClusterIP Service
@@ -129,13 +129,13 @@ Cloudflare Dashboard에서 `Networking → Tunnels → homeServer-tunnel → Rou
 
 저장 후 `intro.woonapp.com` DNS 레코드가 만들어졌는지 확인합니다. 자동 생성되지 않았다면 Tunnel UUID를 대상으로 한 Proxied CNAME을 추가합니다. 첫 연결은 `intro.woonapp.com`만 설정하고, 와일드카드 호스트는 별도 검증 후 추가합니다.
 
-## Calico 유선망 주소 탐지 (수동 동기화)
+## Calico 유선망 주소 탐지 (자동 동기화)
 
 Tigera Operator와 Calico CRD의 최초 설치는 클러스터 bootstrap 단계에서 유지합니다. `infrastructure/calico/wired-network.yaml`은 이미 존재하는 `Installation/default`에서 **노드 IPv4 주소 탐지 방식만** `192.168.10.0/24`로 선언합니다. Argo CD는 server-side apply로 해당 필드를 관리하며 기존 IP pool과 VXLAN 설정은 유지합니다. `metadata.name: default`는 Kubernetes 리소스 이름이고, 파일명은 Git 내 이름입니다.
 
 이 설정은 home-server2 전용이 아니라 **모든 Calico 노드에 적용**됩니다. 현재 home-server의 유선 주소도 선택되며, Kubernetes Node InternalIP와 API Server의 Wi-Fi 주소는 별개입니다. 향후 유선망 주소가 없는 클라우드 Worker를 추가하기 전에 주소 탐지·노드 간 터널 경로를 다시 설계해야 합니다.
 
-변경을 `main`에 반영하고 실제 노드의 유선 주소·연결·복구 경로를 확인한 뒤에만 `kubectl apply -f argocd/calico.yaml`로 Application을 등록합니다. 새 Application은 자동 동기화와 자동 prune을 사용하지 않습니다. 등록만으로 네트워크가 바뀌지 않으며, Argo CD에서 차이를 확인하고 **수동 Sync를 승인**해야 적용됩니다. 동기화 후 Calico 노드 주소, `calico-node` 상태 및 노드 간 Pod 통신을 검증합니다.
+변경을 `main`에 반영하고 실제 노드의 유선 주소·연결·복구 경로를 확인한 뒤에만 `kubectl apply -f argocd/calico.yaml`로 Application을 등록합니다. **등록하면 Argo CD가 즉시 자동 동기화하여 Calico의 주소를 변경**합니다. 이후 `main`의 설정 변경도 자동 반영되고 클러스터에서 수동 수정한 값은 self-heal로 되돌아갑니다. CNI 삭제를 방지하기 위해 자동 prune은 끄고 `Installation/default`에도 prune 방지 옵션을 둡니다. 동기화 후 Calico 노드 주소, `calico-node` 상태 및 노드 간 Pod 통신을 검증합니다.
 
 ## 상태 확인
 
