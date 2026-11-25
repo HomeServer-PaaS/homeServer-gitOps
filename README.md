@@ -1,12 +1,13 @@
 # homelab-gitops
 
-Argo CD로 자기소개 웹 앱, Traefik Ingress Controller, Cloudflare Tunnel Connector를 배포하는 Kubernetes GitOps 저장소입니다.
+Argo CD로 자기소개 웹 앱, Traefik Ingress Controller, Cloudflare Tunnel Connector와 Calico 네트워크 설정을 관리하는 Kubernetes GitOps 저장소입니다.
 
 ```text
 argocd/
 ├── self-Intruduction.yaml       # 웹 앱 Argo CD Application
 ├── traefik.yaml                  # Traefik Helm chart Argo CD Application
-└── cloudflared.yaml              # Tunnel Connector Argo CD Application
+├── cloudflared.yaml             # Tunnel Connector Argo CD Application
+└── calico.yaml                  # Calico 주소 탐지 Argo CD Application (수동 동기화)
 apps/self-Intruduction/
 ├── deployment.yaml               # 웹 앱 Deployment
 ├── service.yaml                  # 내부 ClusterIP Service
@@ -15,8 +16,11 @@ infrastructure/
 ├── cloudflared/
 │   ├── kustomization.yaml
 │   └── deployment.yaml            # 원격 관리 Tunnel Connector
-└── traefik/
-    └── values.yaml                # Traefik Helm chart 설정
+├── traefik/
+│   └── values.yaml                # Traefik Helm chart 설정
+└── calico/
+    ├── kustomization.yaml
+    └── wired-network.yaml         # 기존 Installation/default의 유선 주소 탐지
 ```
 
 ## 트래픽 흐름
@@ -110,7 +114,7 @@ kubectl apply -f argocd/cloudflared.yaml
 kubectl apply -f argocd/self-Intruduction.yaml
 ```
 
-세 Application(Traefik, Connector, 웹 앱)은 자동 동기화됩니다. Connector Deployment는 `cloudflare` 네임스페이스의 Secret을 읽고 `cloudflare/cloudflared:2026.10.7`을 2개 고정 replica로 실행합니다. `/ready` probe가 Cloudflare 연결 상태를 확인하며, 자동 스케일링은 사용하지 않습니다.
+세 Application(Traefik, Connector, 웹 앱)은 자동 동기화됩니다. Git source를 organization 저장소로 바꾼 Application 정의는 이 저장소에서 자동 관리되지 않으므로, 변경을 `main`에 반영한 뒤 `kubectl apply -f argocd/traefik.yaml -f argocd/cloudflared.yaml -f argocd/self-Intruduction.yaml`로 기존 Application을 갱신하고 Argo CD의 새 저장소 접근 권한을 확인해야 합니다. Connector Deployment는 `cloudflare` 네임스페이스의 Secret을 읽고 `cloudflare/cloudflared:2026.10.7`을 2개 고정 replica로 실행합니다. `/ready` probe가 Cloudflare 연결 상태를 확인하며, 자동 스케일링은 사용하지 않습니다.
 
 ### 7. 공개 호스트 연결
 
@@ -124,6 +128,14 @@ Cloudflare Dashboard에서 `Networking → Tunnels → homeServer-tunnel → Rou
 | Service URL | 위에서 확인한 Traefik 내부 Service 주소 |
 
 저장 후 `intro.woonapp.com` DNS 레코드가 만들어졌는지 확인합니다. 자동 생성되지 않았다면 Tunnel UUID를 대상으로 한 Proxied CNAME을 추가합니다. 첫 연결은 `intro.woonapp.com`만 설정하고, 와일드카드 호스트는 별도 검증 후 추가합니다.
+
+## Calico 유선망 주소 탐지 (수동 동기화)
+
+Tigera Operator와 Calico CRD의 최초 설치는 클러스터 bootstrap 단계에서 유지합니다. `infrastructure/calico/wired-network.yaml`은 이미 존재하는 `Installation/default`에서 **노드 IPv4 주소 탐지 방식만** `192.168.10.0/24`로 선언합니다. Argo CD는 server-side apply로 해당 필드를 관리하며 기존 IP pool과 VXLAN 설정은 유지합니다. `metadata.name: default`는 Kubernetes 리소스 이름이고, 파일명은 Git 내 이름입니다.
+
+이 설정은 home-server2 전용이 아니라 **모든 Calico 노드에 적용**됩니다. 현재 home-server의 유선 주소도 선택되며, Kubernetes Node InternalIP와 API Server의 Wi-Fi 주소는 별개입니다. 향후 유선망 주소가 없는 클라우드 Worker를 추가하기 전에 주소 탐지·노드 간 터널 경로를 다시 설계해야 합니다.
+
+변경을 `main`에 반영하고 실제 노드의 유선 주소·연결·복구 경로를 확인한 뒤에만 `kubectl apply -f argocd/calico.yaml`로 Application을 등록합니다. 새 Application은 자동 동기화와 자동 prune을 사용하지 않습니다. 등록만으로 네트워크가 바뀌지 않으며, Argo CD에서 차이를 확인하고 **수동 Sync를 승인**해야 적용됩니다. 동기화 후 Calico 노드 주소, `calico-node` 상태 및 노드 간 Pod 통신을 검증합니다.
 
 ## 상태 확인
 

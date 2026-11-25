@@ -1,0 +1,11 @@
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  calicoNetwork:
+    nodeAddressAutodetectionV4:
+      cidrs:
+        - 192.168.10.0/24
