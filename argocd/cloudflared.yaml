@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/woonkim0413/homeServer-gitops.git
+    repoURL: https://github.com/HomeServer-PaaS/homeServer-gitOps.git
     targetRevision: main
     path: infrastructure/cloudflared
   destination:
