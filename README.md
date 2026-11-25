@@ -131,11 +131,29 @@ Cloudflare Dashboard에서 `Networking → Tunnels → homeServer-tunnel → Rou
 
 ## Calico 유선망 주소 탐지 (자동 동기화)
 
-Tigera Operator와 Calico CRD의 최초 설치는 클러스터 bootstrap 단계에서 유지합니다. `infrastructure/calico/wired-network.yaml`은 이미 존재하는 `Installation/default`에서 **노드 IPv4 주소 탐지 방식만** `192.168.10.0/24`로 선언합니다. Argo CD는 server-side apply로 해당 필드를 관리하며 기존 IP pool과 VXLAN 설정은 유지합니다. `metadata.name: default`는 Kubernetes 리소스 이름이고, 파일명은 Git 내 이름입니다.
+Tigera Operator와 Calico CRD의 최초 설치는 클러스터 bootstrap 단계에서 유지합니다. `infrastructure/calico/wired-network.yaml`은 이미 존재하는 `Installation/default`에서 기존 `firstFound`를 끄고 **노드 IPv4 주소 탐지 방식만** `192.168.10.0/24`로 선언합니다. Argo CD는 server-side apply로 해당 필드를 관리하며 기존 IP pool과 VXLAN 설정은 유지합니다. `metadata.name: default`는 Kubernetes 리소스 이름이고, 파일명은 Git 내 이름입니다.
 
 이 설정은 home-server2 전용이 아니라 **모든 Calico 노드에 적용**됩니다. 현재 home-server의 유선 주소도 선택되며, Kubernetes Node InternalIP와 API Server의 Wi-Fi 주소는 별개입니다. 향후 유선망 주소가 없는 클라우드 Worker를 추가하기 전에 주소 탐지·노드 간 터널 경로를 다시 설계해야 합니다.
 
-변경을 `main`에 반영하고 실제 노드의 유선 주소·연결·복구 경로를 확인한 뒤에만 `kubectl apply -f argocd/calico.yaml`로 Application을 등록합니다. **등록하면 Argo CD가 즉시 자동 동기화하여 Calico의 주소를 변경**합니다. 이후 `main`의 설정 변경도 자동 반영되고 클러스터에서 수동 수정한 값은 self-heal로 되돌아갑니다. CNI 삭제를 방지하기 위해 자동 prune은 끄고 `Installation/default`에도 prune 방지 옵션을 둡니다. 동기화 후 Calico 노드 주소, `calico-node` 상태 및 노드 간 Pod 통신을 검증합니다.
+변경을 `main`에 반영하고 실제 노드의 유선 주소·연결·복구 경로를 확인한 뒤에만 Application을 등록합니다. 기존 클러스터는 Tigera Operator가 `firstFound: true`를 소유하므로 새 CIDR만 server-side apply하면 `firstFound`가 남고, `false`를 선언해도 필드 소유권 충돌이 발생합니다. **처음 이전할 때 한 번** 아래 명령으로 두 값을 함께 변경한 다음 상태를 확인하고 `kubectl apply -f argocd/calico.yaml`로 Application을 등록합니다. 패치하는 순간 네트워크가 바뀌므로 복구 경로를 확보해야 합니다.
+
+```bash
+kubectl patch installation default --type=merge -p \
+  '{"spec":{"calicoNetwork":{"nodeAddressAutodetectionV4":{"firstFound":false,"cidrs":["192.168.10.0/24"]}}}}'
+kubectl get installation default -o jsonpath='{.spec.calicoNetwork.nodeAddressAutodetectionV4}'
+kubectl apply -f argocd/calico.yaml
+```
+
+Application 등록 후 `main`의 설정 변경은 자동 반영되고 클러스터에서 수동 수정한 값은 self-heal로 되돌아갑니다. CNI 삭제를 방지하기 위해 자동 prune은 끄고 `Installation/default`에도 prune 방지 옵션을 둡니다. 등록 전에 이미 적용된 값을 Argo CD가 채택했는지 확인하고, Calico 노드 주소·`calico-node` 상태 및 노드 간 Pod 통신을 검증합니다.
+
+문제가 생기면 Wi-Fi 관리 경로로 접속해 먼저 Argo CD 자동 동기화를 중지한 다음 기존 탐지 방식으로 복원합니다. Application 등록 이전이라면 첫 번째 명령은 생략합니다.
+
+```bash
+kubectl -n argocd patch application calico-network --type=merge -p \
+  '{"spec":{"syncPolicy":{"automated":null}}}'
+kubectl patch installation default --type=merge -p \
+  '{"spec":{"calicoNetwork":{"nodeAddressAutodetectionV4":{"firstFound":true,"cidrs":null}}}}'
+```
 
 ## 상태 확인
 
