@@ -7,5 +7,6 @@ metadata:
 spec:
   calicoNetwork:
     nodeAddressAutodetectionV4:
+      firstFound: false
       cidrs:
         - 192.168.10.0/24
